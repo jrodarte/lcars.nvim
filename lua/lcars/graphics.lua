@@ -126,14 +126,23 @@ function M.supported()
   return ok
 end
 
+--- Send raw bytes to the terminal the UI is attached to.  The Lua side runs in
+--- the server process, so /dev/tty is not reliable; nvim_ui_send (0.12) routes
+--- through the TUI client, exactly as Snacks.image does.
 local function tty_write(s)
-  local f = io.open("/dev/tty", "w")
-  if not f then
-    return false
-  end
   if vim.env.TMUX then
     -- tmux passthrough envelope: DCS tmux; <payload with ESC doubled> ST
     s = "\27Ptmux;" .. s:gsub("\27", "\27\27") .. "\27\\"
+  end
+  if vim.api.nvim_ui_send then
+    local ok = pcall(vim.api.nvim_ui_send, s)
+    if ok then
+      return true
+    end
+  end
+  local f = io.open("/dev/tty", "w")
+  if not f then
+    return false
   end
   f:write(s)
   f:close()

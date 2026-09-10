@@ -421,9 +421,12 @@ local function record_items()
   local files = recent_files(5)
   local items = {}
   if #files == 0 then
-    items[#items + 1] = crow(fc.side4, "RECORDS", { seg("   NO RECENT RECORDS", "LcarsDashOffline") }, nil, { row = 0, bottom = true })
+    items[#items + 1] = crow(fc.side4, "FILES", { seg("   NO RECENT RECORDS", "LcarsDashOffline") }, nil, { row = 0, bottom = true })
     return items
   end
+  -- the last row carries the elbow curve, which leaves only SIDE - R_COLS block
+  -- cells: the RECORDS label goes on the row above (or a short label if alone)
+  local label_row = #files > 1 and #files - 1 or #files
   for i, f in ipairs(files) do
     local rel = vim.fn.fnamemodify(f, ":~")
     local dir = vim.fn.fnamemodify(rel, ":h")
@@ -436,7 +439,8 @@ local function record_items()
     segs[#segs + 1] = seg("  " .. dir .. "/", "LcarsDashDim")
     segs[#segs + 1] = seg(name, "LcarsDashValue")
     local last = i == #files
-    local item = crow(fc.side4, last and "RECORDS" or nil, segs, nil, last and { row = 0, bottom = true } or nil)
+    local label = (i == label_row) and (last and "FILES" or "RECORDS") or nil
+    local item = crow(fc.side4, label, segs, nil, last and { row = 0, bottom = true } or nil)
     item.key = tostring(i)
     item.action = function()
       vim.cmd("edit " .. vim.fn.fnameescape(f))
