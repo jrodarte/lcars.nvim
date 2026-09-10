@@ -817,6 +817,8 @@ function M.get(opts)
   g.LcarsDashCascadeHi = { fg = c.sky }
   g.LcarsDashBoot = { fg = c.amber, italic = true }
   g.LcarsDashId = { fg = c.gray }
+  g.LcarsDashDots = { fg = c.gray2 }
+  g.LcarsDashDim = { fg = c.gray }
   g.LcarsStatusTitle = { fg = c.black, bg = c.orange, bold = true }
   g.LcarsStatusSection = { fg = c.orange, bold = true }
   g.LcarsStatusLabel = { fg = c.text_dim }
