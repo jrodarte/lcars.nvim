@@ -24,13 +24,18 @@ M.IMAGES = {
 M.COLS, M.ROWS = 6, 3
 
 local sent = {} ---@type table<integer, boolean>
-local tmux_ok ---@type boolean|nil  cached: can we pass through tmux?
+local tmux_ok ---@type boolean|nil  cached (10 s): can we pass through tmux?
+local tmux_checked = 0
+local tmux_client = "" -- attached tmux client; images must be re-sent when it changes
+M.reason = "" -- why the last support check said yes/no (see :checkhealth lcars)
 
 --- Inside tmux: is passthrough available and is the outer terminal capable?
 local function tmux_passthrough()
-  if tmux_ok ~= nil then
+  local now = vim.loop.now()
+  if tmux_ok ~= nil and now - tmux_checked < 10000 then
     return tmux_ok
   end
+  tmux_checked = now
   tmux_ok = false
   if vim.fn.executable("tmux") == 1 then
     local ver = (vim.fn.system({ "tmux", "-V" }) or ""):match("(%d+%.%d+)")
@@ -45,12 +50,26 @@ local function tmux_passthrough()
       local v = vim.trim(vim.fn.system({ "tmux", "show", "-gv", "allow-passthrough" }) or "")
       allowed = v == "on" or v == "all"
     end
-    if allowed then
-      local env = vim.fn.system({ "tmux", "show-environment", "-g" }) or ""
-      local outer = env:match("GHOSTTY_RESOURCES_DIR=") or env:match("KITTY_WINDOW_ID=") or env:match("TERM_PROGRAM=ghostty")
-        or env:match("TERM_PROGRAM=kitty") or vim.env.GHOSTTY_RESOURCES_DIR or vim.env.KITTY_WINDOW_ID
-      tmux_ok = outer ~= nil
+    if not allowed then
+      M.reason = "tmux " .. tostring(ver) .. ": set -g allow-passthrough on"
+    else
+      -- the *attached client's* terminal decides (a server may have been started elsewhere)
+      local client = vim.trim(vim.fn.system({ "tmux", "display-message", "-p", "#{client_termname} #{client_pid}" }) or "")
+      local termname = client:match("^(%S+)") or ""
+      local ok = termname:find("ghostty") or termname:find("kitty")
+      if not ok then
+        local env = vim.fn.system({ "tmux", "show-environment", "-g" }) or ""
+        ok = env:match("GHOSTTY_RESOURCES_DIR=") or env:match("KITTY_WINDOW_ID=") or env:match("TERM_PROGRAM=ghostty") or env:match("TERM_PROGRAM=kitty")
+      end
+      tmux_ok = ok ~= nil and ok ~= false
+      if client ~= tmux_client then
+        tmux_client = client
+        sent = {} -- new client terminal: images must be transmitted again
+      end
+      M.reason = tmux_ok and ("tmux client " .. termname) or ("tmux client " .. termname .. " has no kitty graphics")
     end
+  else
+    M.reason = "tmux binary not found"
   end
   return tmux_ok
 end
@@ -70,27 +89,41 @@ end
 
 --- Does this terminal draw kitty graphics with unicode placeholders?
 function M.supported()
-  if vim.g.lcars_graphics == false or #vim.api.nvim_list_uis() == 0 then
-    return false -- disabled, or headless (never write to /dev/tty without a UI)
+  if vim.g.lcars_graphics == false then
+    M.reason = "vim.g.lcars_graphics = false"
+    return false
+  end
+  if #vim.api.nvim_list_uis() == 0 then
+    M.reason = "no UI attached yet"
+    return false -- headless (never write to /dev/tty without a UI)
   end
   if vim.env.STY then
-    return false -- GNU screen: no passthrough
+    M.reason = "GNU screen has no passthrough"
+    return false
   end
   if vim.env.TMUX then
     local ok, res = pcall(tmux_passthrough) -- tmux >= 3.3 needs `set -g allow-passthrough on`
     return ok and res or false
   end
   if vim.env.GHOSTTY_RESOURCES_DIR or vim.env.KITTY_WINDOW_ID or vim.env.KITTY_PID then
+    M.reason = "terminal env"
+    return true
+  end
+  if (vim.env.TERM or ""):find("ghostty") or (vim.env.TERM or ""):find("kitty") then
+    M.reason = "TERM=" .. vim.env.TERM
     return true
   end
   -- WezTerm (as of 20240203) implements kitty graphics but not unicode
   -- placeholders: images land at the cursor and the cells show boxes, so it
   -- keeps the glyph fallback.  Set vim.g.lcars_graphics = true to force.
   if vim.g.lcars_graphics == true then
+    M.reason = "forced"
     return true
   end
   local tp = vim.env.TERM_PROGRAM or ""
-  return tp == "ghostty" or tp == "kitty"
+  local ok = tp == "ghostty" or tp == "kitty"
+  M.reason = ok and ("TERM_PROGRAM=" .. tp) or ("terminal " .. (tp ~= "" and tp or (vim.env.TERM or "?")) .. " has no kitty graphics placeholders")
+  return ok
 end
 
 local function tty_write(s)
@@ -156,6 +189,12 @@ function M.highlight_groups()
     g["LcarsImg" .. string.format("%06X", id)] = { fg = string.format("#%06X", id) }
   end
   return g
+end
+
+--- Forget transmitted images so the next render re-sends them (terminal changed,
+--- tmux client re-attached, or the user asked for a refresh).
+function M.forget()
+  sent = {}
 end
 
 --- Delete transmitted images (teardown).

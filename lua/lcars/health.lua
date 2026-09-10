@@ -29,6 +29,15 @@ function M.check()
     health.warn("require('lcars').setup() has not run; import 'lcars.plugins' in your lazy spec")
   end
 
+  do
+    local ok, gfx = pcall(require, "lcars.graphics")
+    if ok then
+      local sup = gfx.supported()
+      local msg = "elbow graphics (kitty protocol): " .. (sup and "IMAGES" or "GLYPH FALLBACK") .. " - " .. tostring(gfx.reason)
+      if sup then health.ok(msg) else health.info(msg) end
+    end
+  end
+
   local function plugin(name, what, required)
     if has_plugin(name) then
       health.ok(name .. ": " .. what)

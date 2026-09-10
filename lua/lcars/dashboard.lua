@@ -558,6 +558,19 @@ end
 
 ---@param group integer
 function M.setup(group)
+  -- the first render can happen before the UI is attached (no graphics yet):
+  -- re-render once the UI is there, and re-send images when focus returns
+  -- (a tmux client may have re-attached from another terminal)
+  vim.api.nvim_create_autocmd("UIEnter", { group = group, callback = function() vim.schedule(M.update) end })
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = group,
+    callback = function()
+      if vim.env.TMUX then
+        require("lcars.graphics").forget()
+      end
+      M.refresh()
+    end,
+  })
   vim.api.nvim_create_autocmd("User", {
     group = group,
     pattern = "SnacksDashboardOpened",
