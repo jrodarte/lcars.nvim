@@ -122,8 +122,10 @@ The launch screen's elbows are real quarter-circles.  In terminals that implemen
 kitty graphics protocol with unicode placeholders (Ghostty, kitty) the corners
 are the anti-aliased PNGs in `assets/`, transmitted once per session by
 `lua/lcars/graphics.lua` and placed inside ordinary buffer cells, so they scroll and
-redraw like text.  Everywhere else (WezTerm lacks placeholder support, tmux/screen need passthrough, or with
-`vim.g.lcars_graphics = false`) the corners fall back to block glyphs chosen by
+redraw like text.  Inside tmux the transmissions are wrapped in tmux's passthrough envelope (tmux 3.3+ needs
+`set -g allow-passthrough on`; older tmux passes DCS through unconditionally) as long as the
+outer terminal is Ghostty or kitty.  Everywhere else (WezTerm lacks placeholder support, GNU
+screen, or with `vim.g.lcars_graphics = false`) the corners fall back to block glyphs chosen by
 measuring real glyph coverage against a circle.  Red Alert swaps the corner colours.
 
 ## Notes

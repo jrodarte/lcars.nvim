@@ -24,6 +24,36 @@ M.IMAGES = {
 M.COLS, M.ROWS = 6, 3
 
 local sent = {} ---@type table<integer, boolean>
+local tmux_ok ---@type boolean|nil  cached: can we pass through tmux?
+
+--- Inside tmux: is passthrough available and is the outer terminal capable?
+local function tmux_passthrough()
+  if tmux_ok ~= nil then
+    return tmux_ok
+  end
+  tmux_ok = false
+  if vim.fn.executable("tmux") == 1 then
+    local ver = (vim.fn.system({ "tmux", "-V" }) or ""):match("(%d+%.%d+)")
+    local major, minor = 0, 0
+    if ver then
+      major, minor = ver:match("(%d+)%.(%d+)")
+      major, minor = tonumber(major) or 0, tonumber(minor) or 0
+    end
+    local needs_option = major > 3 or (major == 3 and minor >= 3)
+    local allowed = true
+    if needs_option then
+      local v = vim.trim(vim.fn.system({ "tmux", "show", "-gv", "allow-passthrough" }) or "")
+      allowed = v == "on" or v == "all"
+    end
+    if allowed then
+      local env = vim.fn.system({ "tmux", "show-environment", "-g" }) or ""
+      local outer = env:match("GHOSTTY_RESOURCES_DIR=") or env:match("KITTY_WINDOW_ID=") or env:match("TERM_PROGRAM=ghostty")
+        or env:match("TERM_PROGRAM=kitty") or vim.env.GHOSTTY_RESOURCES_DIR or vim.env.KITTY_WINDOW_ID
+      tmux_ok = outer ~= nil
+    end
+  end
+  return tmux_ok
+end
 local asset_dir = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h") .. "/assets/"
 
 local function uchar(cp)
@@ -43,8 +73,12 @@ function M.supported()
   if vim.g.lcars_graphics == false or #vim.api.nvim_list_uis() == 0 then
     return false -- disabled, or headless (never write to /dev/tty without a UI)
   end
-  if vim.env.TMUX or vim.env.STY then
-    return false -- multiplexers need passthrough configured; keep the glyph fallback
+  if vim.env.STY then
+    return false -- GNU screen: no passthrough
+  end
+  if vim.env.TMUX then
+    local ok, res = pcall(tmux_passthrough) -- tmux >= 3.3 needs `set -g allow-passthrough on`
+    return ok and res or false
   end
   if vim.env.GHOSTTY_RESOURCES_DIR or vim.env.KITTY_WINDOW_ID or vim.env.KITTY_PID then
     return true
@@ -63,6 +97,10 @@ local function tty_write(s)
   local f = io.open("/dev/tty", "w")
   if not f then
     return false
+  end
+  if vim.env.TMUX then
+    -- tmux passthrough envelope: DCS tmux; <payload with ESC doubled> ST
+    s = "\27Ptmux;" .. s:gsub("\27", "\27\27") .. "\27\\"
   end
   f:write(s)
   f:close()
