@@ -119,10 +119,10 @@ picker config. Toggling repeatedly creates no duplicate autocmds or timers.
 ## Dashboard elbows
 
 The launch screen's elbows are real quarter-circles.  In terminals that implement the
-kitty graphics protocol with unicode placeholders (Ghostty, kitty, WezTerm) the corners
+kitty graphics protocol with unicode placeholders (Ghostty, kitty) the corners
 are the anti-aliased PNGs in `assets/`, transmitted once per session by
 `lua/lcars/graphics.lua` and placed inside ordinary buffer cells, so they scroll and
-redraw like text.  Everywhere else (and under tmux/screen, or with
+redraw like text.  Everywhere else (WezTerm lacks placeholder support, tmux/screen need passthrough, or with
 `vim.g.lcars_graphics = false`) the corners fall back to block glyphs chosen by
 measuring real glyph coverage against a circle.  Red Alert swaps the corner colours.
 

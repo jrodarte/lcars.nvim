@@ -1,5 +1,5 @@
 -- Kitty graphics protocol (unicode placeholders) for pixel-perfect LCARS
--- elbows.  Ghostty, kitty and WezTerm draw the shipped PNG corners as real
+-- elbows.  Ghostty and kitty draw the shipped PNG corners as real
 -- anti-aliased images inside ordinary buffer cells; everything else falls back
 -- to the measured block glyphs in dashboard.lua.  Images are transmitted once
 -- per terminal session with q=2 (no responses, so nothing leaks into input).
@@ -49,8 +49,14 @@ function M.supported()
   if vim.env.GHOSTTY_RESOURCES_DIR or vim.env.KITTY_WINDOW_ID or vim.env.KITTY_PID then
     return true
   end
+  -- WezTerm (as of 20240203) implements kitty graphics but not unicode
+  -- placeholders: images land at the cursor and the cells show boxes, so it
+  -- keeps the glyph fallback.  Set vim.g.lcars_graphics = true to force.
+  if vim.g.lcars_graphics == true then
+    return true
+  end
   local tp = vim.env.TERM_PROGRAM or ""
-  return tp == "ghostty" or tp == "kitty" or tp == "WezTerm"
+  return tp == "ghostty" or tp == "kitty"
 end
 
 local function tty_write(s)
