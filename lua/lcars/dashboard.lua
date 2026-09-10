@@ -90,6 +90,23 @@ local function extend(t, segs)
   return t
 end
 
+--- Elbow junction: the sidebar column meets the horizontal bar with a concave
+--- inner corner.  `top` = bar above (▛ + ▀), otherwise bar below (▙ + ▄).
+local function elbow_row(color, bar_cols, top)
+  local hl = "LcarsCap" .. cap(color)
+  local corner = top and "\226\150\155" or "\226\150\153"  -- ▛ / ▙
+  local half = top and "\226\150\128" or "\226\150\132"    -- ▀ / ▄
+  local full = "\226\150\136"                                  -- █
+  return {
+    text = {
+      seg(" ", "LcarsGap"),
+      seg(string.rep(full, SIDE), hl),
+      seg(corner, hl),
+      seg(string.rep(half, math.max(0, bar_cols)), hl),
+    },
+  }
+end
+
 --- Sidebar cell for one console row: solid block, optional label on the row.
 local function side(color, label)
   return blk(color, pad(label and (label .. " ") or "", SIDE, "right"))
@@ -122,7 +139,7 @@ local function frame_colors()
   if s.red_alert then
     return { top = "red_bright", side1 = "salmon", side2 = "red", side3 = "salmon", side4 = "red", bottom = "red", accent = "salmon" }
   end
-  return { top = "orange", side1 = "amber", side2 = "blue_muted", side3 = "lilac", side4 = "peach", bottom = "blue_muted", accent = "lilac" }
+  return { top = "orange", side1 = "amber", side2 = "lilac", side3 = "peach", side4 = "blue_muted", bottom = "blue_muted", accent = "lilac" }
 end
 
 -- Sections -----------------------------------------------------------------
@@ -165,8 +182,10 @@ local function header_items()
     l3[#l3 + 1] = seg("  ", hl)
     l3[#l3 + 1] = seg(" ", "LcarsGap")
   end
+  local bar_end = used + math.max(1, mid)          -- last column of the orange bar
   return {
     { text = l1 },
+    elbow_row(fc.top, bar_end - (1 + SIDE + 1), true),
     crow(fc.top, nil, l2),
     crow(fc.top, "CORE", l3, { padding = 1 }),
   }
@@ -311,7 +330,7 @@ local function record_items()
   local files = recent_files(5)
   local items = {}
   if #files == 0 then
-    items[#items + 1] = crow(fc.side4, "RECORDS", { seg("   NO RECENT RECORDS", "LcarsDashOffline") }, { padding = 1 })
+    items[#items + 1] = crow(fc.side4, "RECORDS", { seg("   NO RECENT RECORDS", "LcarsDashOffline") })
     return items
   end
   for i, f in ipairs(files) do
@@ -326,7 +345,7 @@ local function record_items()
     segs[#segs + 1] = seg("  " .. dir .. "/", "LcarsDashDim")
     segs[#segs + 1] = seg(name, "LcarsDashValue")
     local last = i == #files
-    local item = crow(fc.side4, last and "RECORDS" or nil, segs, last and { padding = 1 } or nil)
+    local item = crow(fc.side4, last and "RECORDS" or nil, segs)
     item.key = tostring(i)
     item.action = function()
       vim.cmd("edit " .. vim.fn.fnameescape(f))
@@ -352,9 +371,10 @@ local function footer_items()
     l[#l + 1] = seg(" ", "LcarsGap")
   end
   used = used + n * 2
-  l[#l + 1] = blk(fc.bottom, string.rep(" ", math.max(2, WIDTH - used - 1)))
+  local fill = math.max(2, WIDTH - used - 1)
+  l[#l + 1] = blk(fc.bottom, string.rep(" ", fill))
   l[#l + 1] = capr(fc.bottom)
-  return { { text = l } }
+  return { elbow_row(fc.bottom, WIDTH - (1 + SIDE + 1) - 1, false), { text = l } }
 end
 
 --- Full LCARS section list (called on every dashboard render).
