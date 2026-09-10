@@ -118,60 +118,46 @@ local function uchar(cp)
     0x80 + math.floor(cp / 0x40) % 0x40, 0x80 + cp % 0x40)
 end
 
---- Sextant glyph (2x3 sub-cells) for a 6-bit pattern: bit 1 = top-left,
---- 2 = top-right, 4 = middle-left, 8 = middle-right, 16 = bottom-left,
---- 32 = bottom-right.  Terminals (Ghostty, kitty, foot, wezterm...) draw
---- U+1FB00-1FB3B natively, so no font support is needed.
-local function sextant(v)
-  if v == 0 then
-    return " "
-  elseif v == 63 then
-    return G.full
-  elseif v == 21 then
-    return uchar(0x258C) -- ▌
-  elseif v == 42 then
-    return uchar(0x2590) -- ▐
-  end
-  local cp = 0x1FB00 + v - 1
-  if v > 21 then
-    cp = cp - 1
-  end
-  if v > 42 then
-    cp = cp - 1
-  end
-  return uchar(cp)
-end
+local R_COLS, R_ROWS = 6, 3 -- outer elbow radius in cells (matches the desktop console's proportions)
 
-local R_COLS, R_ROWS = 6, 3 -- outer elbow radius: matches the desktop console's proportions
+-- Outer quarter-circle of each elbow, one entry per cell: { codepoint, inverted }.
+-- Chosen offline by measuring the real pixel coverage of every glyph a terminal
+-- draws natively (sextants, eighth blocks, legacy wedges, triangles) and picking,
+-- per cell, the glyph - or its black-on-colour inverse - closest to a true circle
+-- of radius 6 columns.  Rows run top to bottom.
+local CORNER_TOP = {
+    { { 0x20, false }, { 0x1FB5D, true }, { 0x1FB46, false }, { 0x2586, false }, { 0x2587, false }, { 0x2588, false } },
+    { { 0x25E2, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false } },
+    { { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false } },
+}
+local CORNER_BOTTOM = {
+    { { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false } },
+    { { 0x25E5, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false }, { 0x2588, false } },
+    { { 0x20, false }, { 0x1FB4C, true }, { 0x1FB51, true }, { 0x2582, true }, { 0x2581, true }, { 0x2588, false } },
+}
 
---- Rasterise the outer quarter-circle of an elbow at sextant resolution.
---- Returns R_ROWS strings of R_COLS glyphs (top row first); `bottom` mirrors.
-local function corner_rows(bottom)
-  local Rx, Ry = R_COLS * 2, R_ROWS * 3
-  local rows = {}
-  for row = 0, R_ROWS - 1 do
-    local line = {}
-    for col = 0, R_COLS - 1 do
-      local v = 0
-      for sy = 0, 2 do
-        for sx = 0, 1 do
-          local x, y = col * 2 + sx + 0.5, row * 3 + sy + 0.5
-          if bottom then
-            y = Ry - y
-          end
-          local dx, dy = (Rx - x) / Rx, (Ry - y) / Ry
-          if x >= Rx or y >= Ry or dx * dx + dy * dy <= 1 then
-            v = v + 2 ^ (sy * 2 + sx)
-          end
-        end
-      end
-      line[#line + 1] = sextant(v)
+--- Segments for the `R_COLS` corner cells of one row of an elbow.
+local function corner_segs(color, row, bottom)
+  local cells = (bottom and CORNER_BOTTOM or CORNER_TOP)[row + 1]
+  local fg, inv = "LcarsCap" .. cap(color), "LcarsBlock" .. cap(color)
+  local out, run, run_hl = {}, {}, nil
+  local function flush()
+    if #run > 0 then
+      out[#out + 1] = seg(table.concat(run), run_hl)
+      run = {}
     end
-    rows[#rows + 1] = table.concat(line)
   end
-  return rows
+  for _, cell in ipairs(cells) do
+    local hl = cell[2] and inv or fg
+    if hl ~= run_hl then
+      flush()
+      run_hl = hl
+    end
+    run[#run + 1] = uchar(cell[1])
+  end
+  flush()
+  return out
 end
-local CORNER_TOP, CORNER_BOTTOM = corner_rows(false), corner_rows(true)
 
 --- Sidebar segments for a row that lies on an elbow's outer curve.
 ---@param color string
@@ -179,12 +165,10 @@ local CORNER_TOP, CORNER_BOTTOM = corner_rows(false), corner_rows(true)
 ---@param bottom? boolean
 ---@param label? string
 local function curve(color, row, bottom, label)
-  local glyphs = (bottom and CORNER_BOTTOM or CORNER_TOP)[row + 1]
-  return {
-    seg(" ", "LcarsGap"),
-    seg(glyphs, "LcarsCap" .. cap(color)),
-    blk(color, pad(label and (label .. " ") or "", SIDE - R_COLS, "right")),
-  }
+  local t = { seg(" ", "LcarsGap") }
+  extend(t, corner_segs(color, row, bottom))
+  t[#t + 1] = blk(color, pad(label and (label .. " ") or "", SIDE - R_COLS, "right"))
+  return t
 end
 
 --- Elbow junction: the sidebar column meets the horizontal bar with a concave
@@ -194,15 +178,10 @@ local function elbow_row(color, bar_cols, top)
   local corner = top and "\226\150\155" or "\226\150\153"  -- ▛ / ▙
   local half = top and "\226\150\128" or "\226\150\132"    -- ▀ / ▄
   local full = "\226\150\136"                                  -- █
-  local outer = (top and CORNER_TOP or CORNER_BOTTOM)[top and 2 or R_ROWS - 1]
-  return {
-    text = {
-      seg(" ", "LcarsGap"),
-      seg(outer .. string.rep(full, SIDE - R_COLS), hl),
-      seg(corner, hl),
-      seg(string.rep(half, math.max(0, bar_cols)), hl),
-    },
-  }
+  local t = { seg(" ", "LcarsGap") }
+  extend(t, corner_segs(color, top and 1 or R_ROWS - 2, not top))
+  t[#t + 1] = seg(string.rep(full, SIDE - R_COLS) .. corner .. string.rep(half, math.max(0, bar_cols)), hl)
+  return { text = t }
 end
 
 --- Sidebar cell for one console row: solid block, optional label on the row.
@@ -254,8 +233,9 @@ local function header_items()
   local sys = string.format("SYS %03d", s.ids.sys or 0)
   local title = " COMPUTER ACCESS "
   -- L1: top rail (elbow corner is the sidebar colour continuing into the bar)
-  local l1 = { seg(" ", "LcarsGap"), seg(CORNER_TOP[1], "LcarsCap" .. cap(fc.top)),
-    blk(fc.top, pad(" " .. ident, SIDE - R_COLS + GAP + 2)), seg(title, "LcarsText" .. cap(fc.top)) }
+  local l1 = { seg(" ", "LcarsGap") }
+  extend(l1, corner_segs(fc.top, 0, false))
+  extend(l1, { blk(fc.top, pad(" " .. ident, SIDE - R_COLS + GAP + 2)), seg(title, "LcarsText" .. cap(fc.top)) })
   local used = 1 + SIDE + GAP + 2 + util.width(title)
   local right = 8 + 1 + 4 + 1 + 1 -- lilac 8, gap, peach 4, cap
   local mid = WIDTH - used - right - 1
@@ -463,8 +443,9 @@ local function footer_items()
   local ms = math.floor((stats.startuptime or 0) * 100 + 0.5) / 100
   local text = string.format("%d/%d SUBSYSTEMS LOADED · %sms · UP %s", stats.loaded, stats.count, ms, util.fmt_duration(s.uptime()))
   -- sweeping activity indicator: one lit segment travels along a short bar
-  local l = { seg(" ", "LcarsGap"), seg(CORNER_BOTTOM[R_ROWS], "LcarsCap" .. cap(fc.bottom)),
-    blk(fc.bottom, pad(" DECK 01", SIDE - R_COLS + GAP + 2)), seg(" " .. text .. " ", "LcarsText" .. cap(fc.bottom)) }
+  local l = { seg(" ", "LcarsGap") }
+  extend(l, corner_segs(fc.bottom, R_ROWS - 1, true))
+  extend(l, { blk(fc.bottom, pad(" DECK 01", SIDE - R_COLS + GAP + 2)), seg(" " .. text .. " ", "LcarsText" .. cap(fc.bottom)) })
   local used = 1 + SIDE + GAP + 2 + util.width(text) + 2
   local n = math.max(3, math.min(8, math.floor((WIDTH - used - 4) / 2)))
   for i = 1, n do
