@@ -136,8 +136,18 @@ local CORNER_BOTTOM = {
     { { 0x20, false }, { 0x1FB4C, true }, { 0x1FB51, true }, { 0x2582, true }, { 0x2581, true }, { 0x2588, false } },
 }
 
---- Segments for the `R_COLS` corner cells of one row of an elbow.
+--- Segments for the `R_COLS` corner cells of one row of an elbow.  In terminals
+--- with kitty graphics the corner is a real anti-aliased image (see graphics.lua);
+--- elsewhere the measured block glyphs above.
 local function corner_segs(color, row, bottom)
+  local gfx = require("lcars.graphics")
+  if gfx.supported() then
+    local key = (bottom and "bottom-" or "top-") .. color
+    if gfx.ensure(key) then
+      local text, hl = gfx.placeholder_row(key, row)
+      return { seg(text, hl) }
+    end
+  end
   local cells = (bottom and CORNER_BOTTOM or CORNER_TOP)[row + 1]
   local fg, inv = "LcarsCap" .. cap(color), "LcarsBlock" .. cap(color)
   local out, run, run_hl = {}, {}, nil
@@ -564,6 +574,7 @@ function M.setup(group)
 end
 
 function M.teardown()
+  pcall(require("lcars.graphics").clear)
   boot_timer:stop()
   state.boot.done = true
   M.update()

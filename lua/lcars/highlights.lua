@@ -818,6 +818,10 @@ function M.get(opts)
   g.LcarsDashBoot = { fg = c.amber, italic = true }
   g.LcarsDashId = { fg = c.gray }
   g.LcarsDashDots = { fg = c.gray2 }
+  -- kitty-graphics placeholder cells: foreground encodes the image id
+  for name, attrs in pairs(require("lcars.graphics").highlight_groups()) do
+    g[name] = attrs
+  end
   g.LcarsDashDim = { fg = c.gray }
   g.LcarsStatusTitle = { fg = c.black, bg = c.orange, bold = true }
   g.LcarsStatusSection = { fg = c.orange, bold = true }
